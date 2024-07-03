@@ -1,6 +1,6 @@
 import torch
 import torch.nn.functional as F
-
+import torchvision
 import math
 
 import torch.nn as nn
@@ -43,4 +43,24 @@ class Net(nn.Module):
             x=self.fc2(x)
             return x
 
+class Net_res(nn.Module):
+    def __init__(self):
+        super(Net_res, self).__init__()
+        resnet18=torchvision.models.resnet18(pretrained=True)
+        # ----------------------------------------------------------------------------#
+        #   获取特征提取部分，从conv1到model.layer3，最终获得一个h/16,w/16,256的特征层
+        # ----------------------------------------------------------------------------#
+        features = list([resnet18.conv1, resnet18.bn1, resnet18.relu, resnet18.maxpool, resnet18.layer1, resnet18.layer2])
+        self.features = nn.Sequential(*features)
+        self.layer3=resnet18.layer3
+        self.fc1 = nn.Linear(26*20*256, 1024)
+        self.fc2 = nn.Linear(1024, 4)
 
+
+    def forward(self, x):
+        x=self.features(x)
+        x=self.layer3(x)
+        x = x.view(-1, 26*20*256)
+        x = F.relu(self.fc1(x))
+        x = self.fc2(x)
+        return x

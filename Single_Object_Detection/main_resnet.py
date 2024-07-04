@@ -1,7 +1,7 @@
 import os
 import numpy as np
 from Dataloader import ImgDataset
-from model import Net_res
+from model import Net_res,DIou_Loss
 from torch import nn,utils,optim
 import torch
 from tqdm import tqdm
@@ -30,7 +30,7 @@ test_loader = utils.data.DataLoader(test_dataset, batch_size=test_batch_size)
 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-criterion=nn.L1Loss()
+criterion=DIou_Loss()
 criterion=criterion.to(device)
 
 
@@ -98,6 +98,23 @@ def model_fit(epochs):
             best_loss = eval_loss
         torch.save(model.state_dict(), 'model.pth')  # 保存在验证集上预测效果最好的模型权重
 
+def iou(b1, b2):
+    b1_wh = b1[:, 2:4] - b1[:, :2]
+    b2_wh = b2[:, 2:4] - b2[:, :2]
+    inter_x1 = torch.max(b1[:, 0], b2[:, 0])
+    inter_y1 = torch.max(b1[:, 1], b2[:, 1])
+    inter_x2 = torch.min(b1[:, 2], b2[:, 2])
+    inter_y2 = torch.min(b1[:, 3], b2[:, 3])
+
+    # ----------------------------------------------------#
+    #   求真实框和预测框所有的iou
+    # ----------------------------------------------------#
+    intersect_area = (torch.clamp(inter_x2 - inter_x1, min=0) + 1) * (torch.clamp(inter_y2 - inter_y1, min=0) + 1)
+    b1_area = (b1_wh[:, 0] + 1) * (b1_wh[:, 1] + 1)
+    b2_area = (b2_wh[:, 0] + 1) * (b2_wh[:, 1] + 1)
+    union_area = b1_area + b2_area - intersect_area
+    iou = intersect_area / union_area
+    return iou
 def test():
     #如果已经训练好了权重，模型直接加载权重文件进行测试#
     model_test=Net_res()
@@ -105,12 +122,17 @@ def test():
     model_test.eval()
     model_test=model_test.to(device)
     test_loss = 0
+    correct=0
     with torch.no_grad():  # 仅测试模型，禁用梯度计算
         for batch_idx, (data, target) in enumerate(eval_loader):
             data = data.to(device)
             target = target.to(device)
             output = model_test(data)
             test_loss += criterion(output, target).item()
+            result = iou(output, target)
+            result = torch.where(result > 0.3, 1, 0)
+            correct = correct + result.sum()
+    print('Accuracy:{:.2f}%'.format((correct / ((batch_idx+1)*test_batch_size)).to('cpu').detach().numpy()*100))
     print('Test Loss:',test_loss/(batch_idx+1))
 
 def demo():

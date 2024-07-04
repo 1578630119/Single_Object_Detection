@@ -64,3 +64,58 @@ class Net_res(nn.Module):
         x = F.relu(self.fc1(x))
         x = self.fc2(x)
         return x
+
+class DIou_Loss(nn.Module):
+    def __init__(self):
+        super(DIou_Loss, self).__init__()
+
+    def box_iou(self, b1, b2):
+        """
+        输入为：
+        ----------
+        b1: tensor, shape=(batch,[x1,y1,x2,y2]) x1,y1 左上角坐标，x2，y2右下角坐标
+        b2: tensor, shape=(batch, [x1,y1,x2,y2])
+        返回为：
+        -------
+        iou: tensor, shape=(batch, 1)
+        """
+        b1_wh = b1[:, 2:4] - b1[:, :2]
+        b2_wh = b2[:, 2:4] - b2[:, :2]
+        inter_x1 = torch.max(b1[:, 0], b2[:, 0])
+        inter_y1 = torch.max(b1[:, 1], b2[:, 1])
+        inter_x2 = torch.min(b1[:, 2], b2[:, 2])
+        inter_y2 = torch.min(b1[:, 3], b2[:, 3])
+
+
+        # ----------------------------------------------------#
+        #   求真实框和预测框所有的iou
+        # ----------------------------------------------------#
+        intersect_area =  (torch.clamp(inter_x2 - inter_x1, min=0)+1) * (torch.clamp(inter_y2 - inter_y1, min=0)+1)
+        b1_area = (b1_wh[:, 0]+1) * (b1_wh[:, 1]+1)
+        b2_area = (b2_wh[:, 0]+1) * (b2_wh[:, 1]+1)
+        union_area = b1_area + b2_area - intersect_area
+        iou = intersect_area / union_area
+
+        # DISTANCE
+        C_x1 = torch.min(b1[...,0], b2[...,0])
+        C_y1 = torch.min(b1[...,1], b2[...,1])
+        C_x2 = torch.max(b1[...,2], b2[...,2])
+        C_y2 = torch.max(b1[...,3], b2[...,3])
+
+        center_x1 = (b1[...,0] + b1[...,2]) / 2
+        center_y1 = (b1[...,1] + b1[...,3]) / 2
+        center_x2 = (b2[...,0] + b2[...,2]) / 2
+        center_y2 = (b2[...,1] + b2[...,3]) / 2
+
+        center_distance = (center_x2 - center_x1) ** 2 + (center_y2 - center_y1) ** 2
+        c_distance = (C_x2 - C_x1) ** 2 + (C_y2 - C_y1) ** 2
+
+        DIOU = iou - center_distance / c_distance
+
+
+        return DIOU
+
+    def forward(self, input, targets=None):
+        iou = self.box_iou(input, targets)  # 计算交互比
+        loss = torch.mean((1 - iou))
+        return loss
